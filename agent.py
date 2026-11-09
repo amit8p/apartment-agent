@@ -120,7 +120,13 @@ def tg(method, **payload):
     if DRY_RUN or not TG_TOKEN or not TG_CHAT:
         print(f"[telegram:{method}]", payload.get("caption") or payload.get("text"))
         return True
-    payload["chat_id"] = TG_CHAT
+    # אפשר כמה נמענים: מספרים מופרדים בפסיק ב-TELEGRAM_CHAT_ID
+    chats = [c.strip() for c in TG_CHAT.split(",") if c.strip()]
+    results = [_tg_send(method, dict(payload, chat_id=c)) for c in chats]
+    return any(results)
+
+
+def _tg_send(method, payload):
     for attempt in range(3):
         try:
             r = requests.post(
