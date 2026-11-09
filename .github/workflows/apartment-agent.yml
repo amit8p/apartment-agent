@@ -1,8 +1,10 @@
 name: apartment-agent
 
+# הסוכן רץ ברצף כ-5.5 שעות, סורק כל ~3 דקות, ובסוף מפעיל את עצמו מחדש.
+# התזמון כל 30 דקות הוא רק גיבוי, למקרה שהשרשרת נעצרת.
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -11,11 +13,12 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -27,19 +30,28 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt
 
-      - name: Scan Yad2
+      - name: Scan Yad2 in a loop
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python agent.py
-
-      - name: Save seen listings
         run: |
           git config user.name "apartment-agent"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add seen.json 2>/dev/null || true
-          if ! git diff --cached --quiet; then
-            git commit -m "update seen listings"
-            git pull --rebase --quiet || true
-            git push --quiet
-          fi
+          end=$((SECONDS + 5*3600 + 30*60))
+          while [ $SECONDS -lt $end ]; do
+            git pull --rebase --quiet || true        # לקבל שינויים ב-config.yaml
+            timeout 600 python agent.py || echo "scan failed, continuing"
+            git add seen.json 2>/dev/null || true
+            if ! git diff --cached --quiet; then
+              git commit -m "update seen listings" --quiet
+              git pull --rebase --quiet || true
+              git push --quiet || echo "push failed, will retry next round"
+            fi
+            sleep 150
+          done
+
+      - name: Restart the agent
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run apartment-agent.yml --repo "${{ github.repository }}" --ref "${{ github.ref_name }}"
