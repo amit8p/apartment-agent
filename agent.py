@@ -196,29 +196,53 @@ def fetch_requests(url):
     return r.text
 
 
-def fetch_browser(url):
-    """גיבוי: דפדפן אמיתי (Chrome מותקן מראש בשרתי GitHub)."""
-    try:
+_PW = {}          # דפדפן אחד משותף לכל הריצה (שומר עוגיות, הרבה יותר מהיר)
+REQUESTS_BLOCKED = {"v": False}
+
+
+def _browser_page():
+    if "page" not in _PW:
         from playwright.sync_api import sync_playwright
-    except ImportError:
-        return ""
-    with sync_playwright() as p:
+        pw = sync_playwright().start()
         try:
-            browser = p.chromium.launch(channel="chrome", headless=True)
+            browser = pw.chromium.launch(channel="chrome", headless=True)
         except Exception:
-            browser = p.chromium.launch(headless=True)
+            browser = pw.chromium.launch(headless=True)
         ctx = browser.new_context(
             user_agent=HEADERS["User-Agent"], locale="he-IL", viewport={"width": 1366, "height": 900}
         )
-        page = ctx.new_page()
-        page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        try:
-            page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=20000)
-        except Exception:
-            pass
-        content = page.content()
-        browser.close()
-        return content
+        ctx.set_default_timeout(25000)
+        _PW.update(pw=pw, browser=browser, page=ctx.new_page())
+    return _PW["page"]
+
+
+def close_browser():
+    try:
+        if "browser" in _PW:
+            _PW["browser"].close()
+        if "pw" in _PW:
+            _PW["pw"].stop()
+    except Exception:
+        pass
+    _PW.clear()
+
+
+def fetch_browser(url):
+    """גיבוי: דפדפן אמיתי (Chrome מותקן מראש בשרתי GitHub)."""
+    try:
+        page = _browser_page()
+    except Exception as e:
+        print("browser unavailable:", e)
+        return ""
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=15000)
+    except Exception:
+        pass
+    try:
+        return page.content()
+    except Exception:
+        return ""
 
 
 def extract_next_data(text):
@@ -277,6 +301,7 @@ def scrape(search):
         print("request failed:", e)
     if not text or is_blocked(text) or "__NEXT_DATA__" not in text:
         print(f"[{name}] direct fetch blocked/empty, trying browser...")
+        REQUESTS_BLOCKED["v"] = True
         try:
             text = fetch_browser(url)
         except Exception as e:
@@ -297,11 +322,13 @@ def fetch_details(item):
     """פותח את עמוד המודעה עצמה כדי לקרוא תיאור מלא ופרטי נכס (חניה וכו')."""
     url = item["link"]
     text = ""
-    try:
-        text = fetch_requests(url)
-    except requests.RequestException:
-        pass
+    if not REQUESTS_BLOCKED["v"]:
+        try:
+            text = fetch_requests(url)
+        except requests.RequestException:
+            pass
     if not text or "__NEXT_DATA__" not in text:
+        REQUESTS_BLOCKED["v"] = True
         try:
             text = fetch_browser(url)
         except Exception:
@@ -443,10 +470,11 @@ def main():
 
     # בדיקה מעמיקה: פותחים כל מודעה חדשה שעברה את הסינון הבסיסי
     final = []
+    deadline = time.time() + 240           # לא יותר מ-4 דקות של בדיקות מעמיקות בסריקה
     for it, title in [(i, "🏠 דירה חדשה") for i in new_items] + \
                      [(i, f"📉 ירידת מחיר (היה ₪{p:,})") for i, p in drops]:
-        verified = fetch_details(it)
-        time.sleep(1.5)
+        verified = fetch_details(it) if time.time() < deadline else False
+        time.sleep(0.5)
         if not matches(it, filters):      # בדיקה חוזרת עם התיאור המלא
             continue
         ok, badges = smart_check(it, cfg)
@@ -488,4 +516,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        close_browser()
