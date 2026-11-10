@@ -204,12 +204,18 @@ def _browser_page():
     if "page" not in _PW:
         from playwright.sync_api import sync_playwright
         pw = sync_playwright().start()
+        headless = not os.environ.get("DISPLAY")      # עם xvfb רץ דפדפן "אמיתי" עם חלון
+        args = ["--disable-blink-features=AutomationControlled", "--lang=he-IL"]
         try:
-            browser = pw.chromium.launch(channel="chrome", headless=True)
+            browser = pw.chromium.launch(channel="chrome", headless=headless, args=args)
         except Exception:
-            browser = pw.chromium.launch(headless=True)
+            browser = pw.chromium.launch(headless=headless, args=args)
         ctx = browser.new_context(
-            user_agent=HEADERS["User-Agent"], locale="he-IL", viewport={"width": 1366, "height": 900}
+            locale="he-IL", timezone_id="Asia/Jerusalem", viewport={"width": 1366, "height": 900}
+        )
+        ctx.add_init_script(
+            "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+            "Object.defineProperty(navigator,'languages',{get:()=>['he-IL','he','en-US','en']});"
         )
         ctx.set_default_timeout(25000)
         _PW.update(pw=pw, browser=browser, page=ctx.new_page())
@@ -234,15 +240,22 @@ def fetch_browser(url):
     except Exception as e:
         print("browser unavailable:", e)
         return ""
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=15000)
-    except Exception:
-        pass
-    try:
-        return page.content()
-    except Exception:
-        return ""
+    for attempt in range(2):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            page.wait_for_selector("#__NEXT_DATA__", state="attached", timeout=30000)
+            return page.content()
+        except Exception:
+            try:
+                print(f"  browser attempt {attempt + 1} failed, page title: {page.title()!r}")
+                page.mouse.move(200 + attempt * 50, 300)
+                page.wait_for_timeout(4000)
+                html_ = page.content()
+                if "__NEXT_DATA__" in html_:
+                    return html_
+            except Exception:
+                pass
+    return ""
 
 
 def extract_next_data(text):
