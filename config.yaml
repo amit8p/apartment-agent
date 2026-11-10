@@ -3,16 +3,16 @@
 
 # 1) חיפושים ביד2
 # הלינק הזה כבר מכוון לשכירות בתל אביב. מומלץ להחליף בלינק משלך:
-# yad2.co.il > נדל"ן > השכרה > תל אביב, עד 7,500, 2+ חדרים,
+# yad2.co.il > נדל"ן > השכרה > תל אביב, עד 8,000, 2+ חדרים,
 # ממיינים לפי "תאריך - מהחדש לישן" (חשוב!) ומעתיקים את הכתובת מהדפדפן.
 yad2_searches:
   - name: "תל אביב"
-    url: "https://www.yad2.co.il/realestate/rent/tel-aviv-area?area=1&city=5000&minRooms=2&maxPrice=7500"
+    url: "https://www.yad2.co.il/realestate/rent/tel-aviv-area?area=1&city=5000&minRooms=2&maxPrice=8000"
 
 # 2) סינון בסיסי
 filters:
   min_price: 0
-  max_price: 7500
+  max_price: 8000
   skip_no_price: false
   min_rooms: 2
   max_rooms: 0
